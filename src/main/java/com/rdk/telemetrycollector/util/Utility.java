@@ -34,7 +34,7 @@ public class Utility {
 		float isValidNumber = 0;
 
 		try {
-			isValidNumber =Float.parseFloat(stringValue);
+			isValidNumber =Float.parseFloat(stringValue.trim());
 		} catch (NumberFormatException numberFormatException) {
 			
 			//Do nothing

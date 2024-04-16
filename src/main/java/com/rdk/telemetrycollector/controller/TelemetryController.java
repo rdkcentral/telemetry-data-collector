@@ -19,12 +19,6 @@ public class TelemetryController {
 
 	private static final Logger LOGGER = LoggerFactory.getLogger(TelemetryController.class);
 
-	// TODO : Sample for testing, remove later
-	@GetMapping("test")
-	public String testApi() {
-		return "Success";
-
-	}
 
 	@Autowired
 	ITelemetryCollectorService telemetryCollectorService;
@@ -68,7 +62,7 @@ public class TelemetryController {
 		if (!Utility.isNull(finalTelemetryData)) {
 			String response = telemetryCollectorService.sendJSONReport(finalTelemetryData, Constants.RDKB);
 			if (!Utility.isNull(response)) {
-				LOGGER.info("Upload for RDKB is successful" + telemetryData);
+				LOGGER.info("Upload for RDKB is successful" + finalTelemetryData);
 				return new ResponseEntity<String>(Constants.UPLOAD_SUCCESS_MSG, HttpStatus.OK);
 			} else {
 				LOGGER.error("Upload for RDKB is failed");

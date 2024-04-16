@@ -3,6 +3,9 @@ package com.rdk.telemetrycollector.service.impl;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Iterator;
 
 import org.apache.commons.codec.binary.Base64;
@@ -38,12 +41,6 @@ public class TelemetryCollectorServiceImpl implements ITelemetryCollectorService
 	@Value("${elasticsearch.url}")
 	private String elasticsearchURL;
 	
-	@Value("${elasticsearch.username}")
-	private String elasticUsername;
-	
-	@Value("${elasticsearch.password}")
-	private String elasticPassword;
-
 	private static final Logger LOGGER = LoggerFactory.getLogger(TelemetryCollectorServiceImpl.class);
 
 	/**
@@ -64,6 +61,9 @@ public class TelemetryCollectorServiceImpl implements ITelemetryCollectorService
 				telemetryDataArray = telemetryJsonObject.getJSONArray(Constants.SEARCH_RESULTS);
 			} else if (telemetryData.contains(Constants.REPORT_KEYWORD)) {
 				telemetryDataArray = telemetryJsonObject.getJSONArray(Constants.REPORT);
+				LOGGER.info("Telemetry Data Array" + telemetryDataArray);
+
+				
 			} else {
 				LOGGER.info("Incoming JSON data is not in required format" + telemetryData);
 				return result;
@@ -80,13 +80,23 @@ public class TelemetryCollectorServiceImpl implements ITelemetryCollectorService
 						LOGGER.trace("Going to loop through the key value pairs");
 
 						String markerKey = (String) keys.next();
+						
+						
 						// Get the value of the dynamic key
 						Object currentTelemetryValue = tmtryKeyValue.get(markerKey);
+						
 						if (currentTelemetryValue instanceof String
 								&& Utility.isValidNumber(currentTelemetryValue.toString())) {
-							LOGGER.trace(markerKey + "  : " + currentTelemetryValue.toString() + " is a number");
+							
+							String currentTelemetryValueString = currentTelemetryValue.toString();
+							//workaround for 'mac' coming in lower and upper case values
+							if( markerKey == "mac" ) {
+								
+								currentTelemetryValueString = currentTelemetryValueString.toUpperCase();
+							}
+							LOGGER.trace(markerKey + "  : " + currentTelemetryValueString + " is a number");
 							finalTelemetryData.put(markerKey,
-									Utility.convertStringToNumber(currentTelemetryValue.toString()));
+									Utility.convertStringToNumber(currentTelemetryValueString));
 
 						} else if (currentTelemetryValue instanceof JSONArray) {
 							LOGGER.info("The JSON Key value is a json array" + currentTelemetryValue.toString());
@@ -116,24 +126,74 @@ public class TelemetryCollectorServiceImpl implements ITelemetryCollectorService
 								}
 							}
 						} else {
-							finalTelemetryData.put(markerKey, currentTelemetryValue);
+							
+							//TO DO : Remove later workaround for 'mac' coming in lower and upper case values for RDKB
+							if( currentTelemetryValue instanceof String && markerKey.equals("mac")) {
+								String currentTelemetryValueString = currentTelemetryValue.toString();
+								currentTelemetryValueString = currentTelemetryValueString.toUpperCase();
+								finalTelemetryData.put(markerKey, currentTelemetryValueString);
+							} else if(currentTelemetryValue instanceof String && markerKey.equals("loadavg_test_split")){
+								//TO DO: Remove this later, work around for getting load average value
+								String currentTelemetryValueString = currentTelemetryValue.toString();
+								String[] loadAveragearray = currentTelemetryValueString.split(",");
+								if(Utility.isValidNumber(loadAveragearray[0])){
+									finalTelemetryData.put("load_avge_1min", Utility.convertStringToNumber(loadAveragearray[0]));
+								}
+								if(Utility.isValidNumber(loadAveragearray[1])){
+									finalTelemetryData.put("load_avge_5min", Utility.convertStringToNumber(loadAveragearray[1]));
+								}
+								if(Utility.isValidNumber(loadAveragearray[2])){
+									finalTelemetryData.put("load_avge_15min", Utility.convertStringToNumber(loadAveragearray[2]));
+								}else {
+									finalTelemetryData.put(markerKey, currentTelemetryValue);
+								}
+								
+							}else {
+								finalTelemetryData.put(markerKey, currentTelemetryValue);
+							}
+							
+							
 						}
 
 					}
 
 				}
 				LOGGER.info("Telemetry JSON data processed is " + finalTelemetryData.toString());
+				//workaround for multi-profile telemtry when time is not configurable
+				
 				result = finalTelemetryData.toString();
+				
+				if(!result.contains("Time")) {
+					finalTelemetryData.put("Time",getTime());
+					result = finalTelemetryData.toString();
+					LOGGER.info("Telemetry JSON data with time is " + finalTelemetryData.toString());
+					
+				}
+				
+				
 			} else {
 
 				LOGGER.info("Incoming JSON data is not in required format" + telemetryData);
 
 			}
-		} catch (JSONException exception) {
+		} catch (Exception exception) {
 			LOGGER.error("Error processing json data: {}", exception.getMessage());
 			exception.printStackTrace();
 		}
 		return result;
+	}
+	
+	
+	
+	private String getTime() {
+		Instant instant = Instant.now();
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        formatter = formatter.withZone(ZoneId.of("UTC"));
+        String utcTime = formatter.format(instant);
+        System.out.println(utcTime);
+		return utcTime;
+		
+		
 	}
 
 	/**
@@ -155,12 +215,11 @@ public class TelemetryCollectorServiceImpl implements ITelemetryCollectorService
 		HttpPost httpPost = new HttpPost(elasticsearchURL + index + Constants.ES_DOC_PRETTY);
 		httpPost.setHeader(Constants.ACCEPT, Constants.APPLICATION_JSON);
 		httpPost.setHeader(Constants.CONTENT_TYPE, Constants.APPLICATION_JSON);
-		final String authorization = elasticUsername + ":" + elasticPassword;
-		final byte[] encodedAuth = Base64.encodeBase64(authorization.getBytes(StandardCharsets.ISO_8859_1));
-		final String authHeader = "Basic " + new String(encodedAuth);
-		httpPost.setHeader(HttpHeaders.AUTHORIZATION, authHeader);
 		
 		String jsonToBesent = telemetryData.toString();
+		
+		LOGGER.info("JSON SENT"+ jsonToBesent);
+		LOGGER.info("ELASTIC SEARCH URL "+ elasticsearchURL + index + Constants.ES_DOC_PRETTY);
 		StringEntity stringEntity = null;
 		try {
 			stringEntity = new StringEntity(jsonToBesent);
